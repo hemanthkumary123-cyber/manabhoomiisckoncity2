@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d6efd">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
+<title>ISKON CITY-II — Interactive Plot Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  /* ============================================================
+     BASE
+     ============================================================ */
+  :root{
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --bar-h: 66px;      /* live-updated from JS */
+    --top-h: 58px;      /* live-updated from JS */
+    --brand: #0d6efd;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; background: #f5f5f5;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  #map {
+    position: absolute; inset: 0; background: #e9ecef;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  /* ============================================================
+     TOP BAR  (brand + search)
+     ============================================================ */
+  .topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 1200;
+    display: flex; align-items: center; gap: 8px;
+    padding: calc(6px + var(--safe-t)) calc(10px + var(--safe-r)) 6px calc(10px + var(--safe-l));
+    background: rgba(255,255,255,0.97);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    box-shadow: 0 2px 14px rgba(0,0,0,0.12);
+    border-radius: 0 0 14px 14px;
+  }
+  .brand {
+    font-weight: 800; font-size: 15px; color: var(--brand);
+    white-space: nowrap; letter-spacing: -0.2px;
+  }
+  .search-box { margin-left: auto; display: flex; gap: 6px; }
+  .search-box input {
+    padding: 8px 12px; border: 1px solid #d0d5dd; border-radius: 8px;
+    width: 170px; font-size: 14px; outline: none; font-family: inherit;
+  }
+  .search-box input:focus { border-color: var(--brand); }
+  .search-box button {
+    padding: 8px 14px; border: none; border-radius: 8px;
+    background: var(--brand); color: #fff; cursor: pointer;
+    font-weight: 600; font-size: 14px; font-family: inherit;
+  }
+  .search-toggle { display: none; }
+
+  /* ============================================================
+     TOOLBAR  (desktop: under the top bar / mobile: bottom bar)
+     ============================================================ */
+  .toolbar {
+    position: absolute; z-index: 1100;
+    top: calc(var(--top-h) + 6px); left: 8px; right: 8px;
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    background: rgba(255,255,255,0.98);
+    padding: 8px 10px; border-radius: 12px;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.15);
+  }
+  .toolbar button, .toolbar label {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 9px 13px; border: 1px solid #d0d5dd; border-radius: 9px;
+    background: #fff; cursor: pointer; font-size: 13px; font-weight: 600;
+    white-space: nowrap; color: #333; transition: all 0.15s;
+    font-family: inherit; min-height: 40px; line-height: 1;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  .toolbar button:hover, .toolbar label:hover { background: #f0f4f8; border-color: #94a3b8; }
+  .toolbar button.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .toolbar .ico { font-size: 15px; line-height: 1; }
+
+  .toolbar .btn-green  { background:#198754!important; color:#fff!important; border-color:#198754!important; }
+  .toolbar .btn-red    { background:#dc3545!important; color:#fff!important; border-color:#dc3545!important; }
+  .toolbar .btn-orange { background:#fd7e14!important; color:#fff!important; border-color:#fd7e14!important; }
+  .toolbar .btn-undo   { background:#6f42c1!important; color:#fff!important; border-color:#6f42c1!important; }
+  .toolbar .btn-redo   { background:#0dcaf0!important; color:#0f2c52!important; border-color:#0dcaf0!important; }
+  .toolbar .btn-undo:disabled { background:#c8b9e6!important; border-color:#c8b9e6!important; color:#fff!important; }
+  .toolbar .btn-redo:disabled { background:#aee7f3!important; border-color:#aee7f3!important; color:#fff!important; }
+  .toolbar .btn-del    { background:#b02a37!important; color:#fff!important; border-color:#b02a37!important; }
+  .toolbar .btn-del.active { background:#ff0000!important; border-color:#ff0000!important; animation: pulse 1.2s infinite; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,0,0,0.5); }
+    50%      { box-shadow: 0 0 0 8px rgba(255,0,0,0); }
+  }
+
+  /* Secondary group: inline on desktop */
+  .toolbar-secondary { display: contents; }
+  .toolbar .more-btn { display: none; }
+
+  /* ============================================================
+     BANNERS
+     ============================================================ */
+  .draw-banner, .delete-banner, .edit-banner {
+    position: absolute; top: calc(var(--top-h) + 66px); left: 50%; transform: translateX(-50%);
+    z-index: 1000; padding: 8px 20px; border-radius: 24px;
+    font-size: 13px; font-weight: 600; display: none; white-space: nowrap;
+  }
+  .draw-banner   { background: #0d6efd; color: #fff; box-shadow: 0 4px 14px rgba(13,110,253,0.4); }
+  .delete-banner { background: #dc3545; color: #fff; box-shadow: 0 4px 14px rgba(220,53,69,0.4); }
+  .edit-banner   { background: #198754; color: #fff; box-shadow: 0 4px 14px rgba(25,135,84,0.4); }
+
+  /* ============================================================
+     LEGEND
+     ============================================================ */
+  .legend {
+    position: absolute; bottom: 14px; right: 14px; z-index: 1000;
+    background: rgba(255,255,255,0.98); padding: 12px 14px; border-radius: 10px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15); font-size: 12px; line-height: 1.7;
+  }
+  .legend b { display: block; margin-bottom: 8px; font-size: 13px; color: #333; }
+  .legend .row { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.15); }
+
+  /* ============================================================
+     MAP LABELS
+     ============================================================ */
+  .plot-label { pointer-events: none; background: transparent !important; border: none !important; }
+  .plot-label > span {
+    position: absolute; left: 0; top: 0;
+    transform: translate(-50%, -50%);
+    background: rgba(255,255,255,0.92);
+    border: 1px solid #333; border-radius: 0.3em;
+    padding: 0.1em 0.45em;
+    font-size: var(--label-font, 10px);
+    font-weight: 700; color: #000; white-space: nowrap;
+    line-height: 1.15; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    transition: font-size 0.15s ease-out;
+  }
+  .plot-label.sold   > span { background: rgba(220,53,69,0.95); color:#fff; border-color:#a71d2a; }
+  .plot-label.booked > span { background: rgba(232,62,140,0.95); color:#fff; border-color:#b32565; }
+  .plot-label.onhold > span { background: rgba(255,193,7,0.95); border-color:#b38600; }
+
+  body.delete-mode #map { cursor: crosshair !important; }
+  body.delete-mode .leaflet-interactive { cursor: pointer !important; }
+  .leaflet-interactive.delete-hover {
+    stroke: #ff0000 !important; stroke-width: 5 !important; fill-opacity: 0.8 !important;
+  }
+
+  /* ============================================================
+     WELCOME
+     ============================================================ */
+  .welcome {
+    position: absolute; inset: 0; z-index: 900;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(15,23,42,0.55);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+    padding: 16px;
+  }
+  .welcome-box {
+    background: #fff; padding: 30px 32px; border-radius: 18px; text-align: center;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3); max-width: 480px; width: 100%;
+  }
+  .welcome-box h1 { margin: 0 0 8px; font-size: 22px; color: var(--brand); }
+  .welcome-box .sub { font-size: 13px; color: #666; margin-bottom: 20px; }
+  .welcome-box p { margin: 10px 0; font-size: 14px; color: #444; line-height: 1.6; text-align: left; }
+  .welcome-box .formula {
+    background: #f0f7ff; border-left: 3px solid var(--brand);
+    padding: 8px 12px; margin: 12px 0; border-radius: 6px;
+    font-family: ui-monospace, monospace; font-size: 12px; color: #0a58ca;
+    text-align: left;
+  }
+  .welcome-box .btn-start {
+    display: inline-block; background: var(--brand); color: #fff; padding: 12px 26px;
+    border-radius: 10px; font-weight: 700; cursor: pointer; margin-top: 16px;
+    font-size: 15px; border: none; font-family: inherit;
+  }
+  .welcome-box .btn-start:hover { background: #0b5ed7; }
+
+  /* ============================================================
+     INFO CARD
+     ============================================================ */
+  .info-card {
+    position: absolute; bottom: 14px; left: 14px; z-index: 1000;
+    background: rgba(255,255,255,0.98); padding: 14px 16px; border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18); font-size: 13px;
+    min-width: 250px; max-width: 300px; display: none;
+  }
+  .info-card h3 { margin: 0 0 10px; font-size: 16px; }
+  .info-card .row { display: flex; justify-content: space-between; padding: 3px 0; gap: 8px; }
+  .info-card .row span:first-child { color: #666; }
+  .info-card .row span:last-child { font-weight: 600; color: #222; text-align: right; }
+  .info-card .close {
+    position: absolute; top: 8px; right: 10px; cursor: pointer;
+    font-size: 20px; color: #888; background: none; border: none;
+    width: 32px; height: 32px; line-height: 1;
+  }
+  .info-card .divider { height: 1px; background: #e5e7eb; margin: 8px 0; }
+  .info-card .size-box {
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 8px 10px; margin: 6px 0; font-size: 12px;
+  }
+  .info-card .size-box .line { display: flex; justify-content: space-between; padding: 2px 0; }
+  .info-card .size-box .line span:first-child { color: #64748b; }
+  .info-card .size-box .line span:last-child { font-weight: 600; color: #334155; }
+  .info-card .total-box {
+    background: linear-gradient(135deg, #f0f7ff, #e0efff);
+    border: 1px solid #cfe2ff; border-radius: 10px;
+    padding: 10px 12px; margin: 8px 0;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .info-card .total-box .lbl {
+    font-size: 11px; font-weight: 700; color: #0a58ca;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .info-card .total-box .val {
+    font-size: 19px; font-weight: 800; color: var(--brand);
+    letter-spacing: -0.4px;
+  }
+  .info-card .actions {
+    display: flex; gap: 6px; margin-top: 12px;
+    padding-top: 10px; border-top: 1px solid #e5e7eb;
+  }
+  .info-card .actions button {
+    flex: 1; padding: 11px; border: none; border-radius: 8px;
+    font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+    min-height: 42px;
+  }
+  .info-card .btn-edit   { background: var(--brand); color: #fff; }
+  .info-card .btn-delete { background: #dc3545; color: #fff; }
+
+  /* ============================================================
+     EDIT MODAL
+     ============================================================ */
+  .modal-backdrop {
+    position: absolute; inset: 0; z-index: 2000;
+    background: rgba(15,23,42,0.6);
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  .modal-backdrop.show { display: flex; }
+
+  .modal {
+    background: #fff; border-radius: 18px; width: 100%; max-width: 500px;
+    max-height: 92vh; overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    animation: slideUp 0.25s ease-out;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
+
+  .modal-header {
+    padding: 18px 22px 14px; border-bottom: 1px solid #e5e7eb;
+    display: flex; align-items: center; gap: 12px;
+    position: sticky; top: 0; background: #fff; z-index: 2;
+    border-radius: 18px 18px 0 0;
+  }
+  .modal-header h2 { margin: 0; font-size: 18px; color: var(--brand); flex: 1; }
+  .modal-header .close-btn {
+    background: #f0f3f7; border: none; width: 36px; height: 36px;
+    border-radius: 50%; cursor: pointer; font-size: 18px;
+    color: #555; font-weight: 700; line-height: 1; flex-shrink: 0;
+  }
+  .modal-header .close-btn:hover { background: #e0e5ec; }
+
+  .modal-body { padding: 18px 22px; }
+
+  .section-title {
+    font-size: 11px; font-weight: 800; color: var(--brand);
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin: 6px 0 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: #e5e7eb; }
+
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block; font-size: 12px; font-weight: 700;
+    color: #555; text-transform: uppercase; letter-spacing: 0.4px;
+    margin-bottom: 5px;
+  }
+  .field input, .field select {
+    width: 100%; padding: 10px 12px; border: 1px solid #d0d5dd;
+    border-radius: 8px; font-size: 14px; outline: none;
+    background: #fff; color: #222; font-family: inherit;
+  }
+  .field input:focus, .field select:focus {
+    border-color: var(--brand); box-shadow: 0 0 0 3px rgba(13,110,253,0.15);
+  }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .input-with-btn { display: flex; gap: 6px; }
+  .input-with-btn input { flex: 1; min-width: 0; }
+  .input-with-btn .recalc-btn {
+    padding: 0 16px; border: 1px solid #cfe2ff; background: #f0f7ff;
+    color: var(--brand); border-radius: 8px; cursor: pointer;
+    font-size: 16px; font-weight: 700; flex-shrink: 0;
+  }
+  .input-with-btn .recalc-btn:hover { background: #d9eaff; }
+
+  .field-status { display: flex; flex-wrap: wrap; gap: 6px; }
+  .field-status input { display: none; }
+  .field-status label {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 8px 14px; border-radius: 20px; border: 1.5px solid #d0d5dd;
+    font-size: 12px; font-weight: 600; cursor: pointer; background: #fff;
+    text-transform: none; letter-spacing: 0; margin: 0; color: #333;
+    min-height: 38px;
+  }
+  .field-status label.checked { border-color: transparent; color: #fff; }
+  .field-status label[data-status="available"].checked    { background: #28a745; }
+  .field-status label[data-status="booked"].checked       { background: #e83e8c; }
+  .field-status label[data-status="sold"].checked         { background: #dc3545; }
+  .field-status label[data-status="onhold"].checked       { background: #ffc107; color: #000; }
+  .field-status label[data-status="mortgage"].checked     { background: #fd7e14; }
+  .field-status label[data-status="registration"].checked { background: #17a2b8; }
+  .field-status label[data-status="houses"].checked       { background: #198754; }
+
+  .area-box {
+    background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 8px; padding: 10px 12px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    font-size: 12px;
+  }
+  .area-box .cell { display: flex; flex-direction: column; gap: 2px; }
+  .area-box .cell .lbl {
+    color: #64748b; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .area-box .cell .val { font-weight: 700; color: #334155; font-size: 14px; }
+
+  .pricing-panel {
+    background: linear-gradient(135deg, #f0f7ff, #e0efff);
+    border: 1px solid #cfe2ff;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 4px 0 6px;
+  }
+  .pricing-panel .calc-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 5px 0; font-size: 13px; gap: 10px;
+  }
+  .pricing-panel .calc-row .lbl { color: #0a58ca; }
+  .pricing-panel .calc-row .val { font-weight: 700; color: #222; }
+  .pricing-panel .total-row {
+    border-top: 2px dashed #a0c4ff;
+    margin-top: 8px; padding-top: 10px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  }
+  .pricing-panel .total-row .lbl {
+    font-size: 12px; font-weight: 800; color: #0a58ca;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .pricing-panel .total-row .val {
+    font-size: 21px; font-weight: 800; color: var(--brand);
+    letter-spacing: -0.5px;
+  }
+
+  .field-hint { font-size: 11px; color: #888; margin-top: 4px; line-height: 1.4; }
+  .field-hint b { color: var(--brand); }
+
+  .modal-footer {
+    padding: 14px 22px 20px; display: flex; gap: 10px;
+    border-top: 1px solid #e5e7eb;
+    position: sticky; bottom: 0; background: #fff;
+    border-radius: 0 0 18px 18px;
+  }
+  .modal-footer button {
+    flex: 1; padding: 13px; border: none; border-radius: 10px;
+    font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit;
+    min-height: 48px;
+  }
+  .btn-cancel { background: #e5e7eb; color: #333; }
+  .btn-cancel:hover { background: #d5d9df; }
+  .btn-save { background: var(--brand); color: #fff; }
+  .btn-save:hover { background: #0b5ed7; }
+  .modal-footer .btn-delete-edit {
+    flex: 0 0 auto; padding: 13px 16px;
+    background: #fff; color: #dc3545; border: 1.5px solid #dc3545;
+  }
+  .modal-footer .btn-delete-edit:hover { background: #fff5f5; }
+  .modal-footer .btn-delete-edit:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .toast {
+    position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+    z-index: 3000; background: #222; color: #fff; padding: 10px 20px;
+    border-radius: 24px; font-size: 13px; font-weight: 500;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3); opacity: 0;
+    transition: opacity 0.25s; pointer-events: none; white-space: nowrap;
+    max-width: calc(100% - 32px);
+  }
+  .toast.show { opacity: 1; }
+
+  @keyframes sheetUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ============================================================
+     MOBILE  (≤ 768px)
+     ============================================================ */
+  @media (max-width: 768px) {
+
+    /* ---- Top bar ---- */
+    .topbar { flex-wrap: wrap; gap: 6px; padding-top: calc(8px + var(--safe-t)); }
+    .brand { font-size: 14px; }
+    .search-toggle {
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-left: auto; width: 42px; height: 42px; flex-shrink: 0;
+      border: none; border-radius: 10px; background: #eef2f7;
+      font-size: 18px; cursor: pointer; font-family: inherit;
+    }
+    .search-toggle.active { background: var(--brand); }
+    .search-box { display: none; width: 100%; margin-left: 0; }
+    .search-box.show { display: flex; }
+    .search-box input { flex: 1; width: auto; font-size: 16px; padding: 11px 12px; }
+    .search-box button { padding: 11px 18px; font-size: 15px; }
+
+    /* ---- Bottom toolbar ---- */
+    .toolbar {
+      top: auto; bottom: 0; left: 0; right: 0;
+      flex-wrap: nowrap;
+      overflow-x: auto; overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      border-radius: 16px 16px 0 0;
+      padding: 8px calc(8px + var(--safe-r)) calc(8px + var(--safe-b)) calc(8px + var(--safe-l));
+      gap: 6px;
+      box-shadow: 0 -4px 22px rgba(0,0,0,0.18);
+    }
+    .toolbar::-webkit-scrollbar { display: none; }
+
+    .toolbar button, .toolbar label {
+      flex: 0 0 auto;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 64px; min-height: 54px;
+      padding: 7px 8px;
+      font-size: 10px; font-weight: 700;
+      border-radius: 12px;
+      letter-spacing: 0.1px;
+    }
+    .toolbar .ico { font-size: 18px; }
+    .toolbar .lbl { font-size: 10px; }
+
+    .toolbar .more-btn { display: inline-flex; }
+
+    /* ---- Secondary sheet (slides up above the bar) ---- */
+    .toolbar-secondary {
+      display: none;
+      position: fixed;
+      left: calc(8px + var(--safe-l));
+      right: calc(8px + var(--safe-r));
+      bottom: calc(var(--bar-h) + 10px);
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      padding: 12px;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 -8px 34px rgba(0,0,0,0.3);
+      z-index: 1500;
+      max-height: 60vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      animation: sheetUp 0.2s ease-out;
+    }
+    .toolbar-secondary.open { display: grid; }
+
+    .toolbar .toolbar-secondary > * {
+      flex-direction: row;
+      justify-content: flex-start;
+      gap: 10px;
+      min-width: 0;
+      min-height: 54px;
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: 12px;
+    }
+    .toolbar .toolbar-secondary > * .ico { font-size: 20px; }
+    .toolbar .toolbar-secondary > * .lbl { font-size: 13px; }
+
+    /* ---- Banners ---- */
+    .draw-banner, .delete-banner, .edit-banner {
+      top: auto;
+      bottom: calc(var(--bar-h) + 12px);
+      font-size: 12px; padding: 9px 16px;
+      max-width: calc(100% - 24px);
+      white-space: normal; text-align: center; line-height: 1.35;
+    }
+
+    /* ---- Legend ---- */
+    .legend {
+      display: none;
+      left: calc(8px + var(--safe-l));
+      right: calc(8px + var(--safe-r));
+      bottom: calc(var(--bar-h) + 10px);
+      z-index: 1400;
+      font-size: 12px;
+      max-height: 55vh; overflow-y: auto;
+    }
+    .legend.show { display: block; }
+
+    /* ---- Info card → bottom sheet ---- */
+    .info-card {
+      left: calc(8px + var(--safe-l));
+      right: calc(8px + var(--safe-r));
+      bottom: calc(var(--bar-h) + 10px);
+      min-width: 0; max-width: none;
+      max-height: 55vh; overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 16px;
+      z-index: 1400;
+      animation: sheetUp 0.2s ease-out;
+    }
+
+    /* ---- Toast ---- */
+    .toast {
+      bottom: calc(var(--bar-h) + 18px);
+      font-size: 12px;
+      white-space: normal;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    /* ---- Welcome ---- */
+    .welcome {
+      padding: calc(14px + var(--safe-t)) 14px calc(14px + var(--safe-b));
+      align-items: center;
+    }
+    .welcome-box {
+      padding: 22px 20px;
+      border-radius: 16px;
+      max-height: 88vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .welcome-box h1 { font-size: 19px; }
+    .welcome-box .sub { font-size: 12px; margin-bottom: 14px; }
+    .welcome-box p { font-size: 13px; margin: 8px 0; }
+    .welcome-box .formula { font-size: 11.5px; }
+    .welcome-box .btn-start { width: 100%; padding: 15px; font-size: 16px; }
+
+    /* ---- Modal → full bottom sheet ---- */
+    .modal-backdrop { padding: 0; align-items: flex-end; }
+    .modal {
+      max-width: 100%;
+      max-height: 94vh;
+      border-radius: 18px 18px 0 0;
+      animation: slideUp 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
+    }
+    .modal-header { border-radius: 18px 18px 0 0; padding: 16px 18px 12px; }
+    .modal-header h2 { font-size: 17px; }
+    .modal-body { padding: 16px 18px; }
+    .modal-footer {
+      padding: 12px 18px calc(14px + var(--safe-b));
+      flex-wrap: wrap;
+      border-radius: 0;
+    }
+    .modal-footer .btn-delete-edit {
+      flex: 1 1 100%;
+      order: 3;
+      margin-top: 2px;
+    }
+
+    /* 16px inputs prevent iOS auto-zoom on focus */
+    .field input, .field select { font-size: 16px; padding: 12px; }
+    .field-row { grid-template-columns: 1fr; gap: 0; }
+    .field-row .field { margin-bottom: 14px; }
+    .field-status label { padding: 10px 15px; min-height: 42px; font-size: 12.5px; }
+    .pricing-panel .total-row .val { font-size: 19px; }
+    .area-box { grid-template-columns: 1fr 1fr; }
+
+    /* ---- Leaflet controls pushed below the top bar ---- */
+    .leaflet-top.leaflet-right { top: calc(var(--top-h) + 4px); }
+    .leaflet-touch .leaflet-control-zoom-in,
+    .leaflet-touch .leaflet-control-zoom-out {
+      width: 42px; height: 42px; line-height: 42px; font-size: 24px;
+    }
+    .leaflet-control-zoom { border-radius: 10px; overflow: hidden; }
+  }
+
+  /* Small phones */
+  @media (max-width: 380px) {
+    .toolbar button, .toolbar label { min-width: 58px; font-size: 9.5px; }
+    .toolbar .ico { font-size: 17px; }
+    .toolbar .toolbar-secondary { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- ============ TOP BAR ============ -->
+<div class="topbar">
+  <span class="brand">🏗️ ISKON CITY-II</span>
+  <div class="search-box" id="searchBox">
+    <input type="text" id="searchInput" placeholder="Plot No (A-1)" autocomplete="off">
+    <button id="searchBtn" type="button">🔍</button>
+  </div>
+  <button class="search-toggle" id="searchToggle" type="button" aria-label="Search plot">🔍</button>
+</div>
+
+<!-- ============ TOOLBAR ============ -->
+<div class="toolbar" id="toolbar">
+  <button id="drawBtn" type="button"><span class="ico">✏️</span><span class="lbl">Draw Plot</span></button>
+  <button id="finishBtn" class="btn-green" type="button" style="display:none"><span class="ico">✅</span><span class="lbl">Save Plot</span></button>
+  <button id="cancelBtn" class="btn-red" type="button" style="display:none"><span class="ico">✕</span><span class="lbl">Cancel</span></button>
+  <button id="editBtn" type="button"><span class="ico">📝</span><span class="lbl">Edit</span></button>
+  <button id="deleteBtn" class="btn-del" type="button"><span class="ico">🗑️</span><span class="lbl">Delete</span></button>
+  <button id="undoBtn" class="btn-undo" type="button" disabled><span class="ico">↶</span><span class="lbl">Undo</span></button>
+  <button id="redoBtn" class="btn-redo" type="button" disabled><span class="ico">↷</span><span class="lbl">Redo</span></button>
+
+  <div class="toolbar-secondary" id="toolbarSecondary">
+    <label class="tool-btn" title="Load layout image">
+      <span class="ico">🖼️</span><span class="lbl">Load Layout</span>
+      <input type="file" id="imgInput" accept="image/*" hidden>
+    </label>
+    <button id="exportBtn" class="tool-btn" type="button"><span class="ico">💾</span><span class="lbl">Backup</span></button>
+    <label class="tool-btn" title="Restore backup">
+      <span class="ico">📂</span><span class="lbl">Restore</span>
+      <input type="file" id="importInput" accept=".json" hidden>
+    </label>
+    <button id="clearBtn" class="tool-btn btn-orange" type="button"><span class="ico">🧹</span><span class="lbl">Clear All</span></button>
+    <button id="fitBtn" class="tool-btn" type="button"><span class="ico">🎯</span><span class="lbl">Fit View</span></button>
+    <button id="legendBtn" class="tool-btn" type="button"><span class="ico">🎨</span><span class="lbl">Legend</span></button>
+  </div>
+
+  <button id="moreBtn" class="more-btn" type="button"><span class="ico">☰</span><span class="lbl">More</span></button>
+</div>
+
+<div class="draw-banner" id="drawBanner">✏️ Tap corners of the plot on the map</div>
+<div class="delete-banner" id="deleteBanner">🗑️ Tap a plot to delete it • Tap Delete again to exit</div>
+<div class="edit-banner" id="editBanner">📝 Tap a plot to edit it • Tap Edit again to exit</div>
+
+<div class="info-card" id="infoCard">
+  <button class="close" onclick="closeInfoCard()">×</button>
+  <div id="infoContent"></div>
+</div>
+
+<div class="legend" id="legend">
+  <b>Status Legend</b>
+  <div class="row"><span class="dot" style="background:#28a745"></span> Available</div>
+  <div class="row"><span class="dot" style="background:#e83e8c"></span> Booked</div>
+  <div class="row"><span class="dot" style="background:#dc3545"></span> Sold</div>
+  <div class="row"><span class="dot" style="background:#ffc107"></span> On Hold</div>
+  <div class="row"><span class="dot" style="background:#fd7e14"></span> Mortgage</div>
+  <div class="row"><span class="dot" style="background:#17a2b8"></span> Registration</div>
+  <div class="row"><span class="dot" style="background:#198754"></span> Houses</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============ EDIT / ADD MODAL ============ -->
+<div class="modal-backdrop" id="editModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">Edit Plot</h2>
+      <button class="close-btn" onclick="closeEditModal()">×</button>
+    </div>
+    <div class="modal-body">
+
+      <div class="section-title">Plot Details</div>
+
+      <div class="field">
+        <label for="f_plotNo">Plot Number</label>
+        <input type="text" id="f_plotNo" placeholder="e.g. A-1, B-42">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="f_phase">Phase</label>
+          <select id="f_phase">
+            <option>Phase-1</option><option>Phase-2</option><option>Phase-3</option>
+            <option>Phase-4</option><option>Phase-5</option><option>Phase-6</option>
+            <option>Phase-7</option><option>—</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f_block">Block</label>
+          <select id="f_block">
+            <option>A Block</option><option>B Block</option><option>C Block</option>
+            <option>—</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="f_facing">Facing</label>
+        <select id="f_facing">
+          <option>East</option><option>West</option>
+          <option>North</option><option>South</option>
+          <option>—</option>
+        </select>
+      </div>
+
+      <div class="section-title" style="margin-top:20px">Plot Size</div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="f_length">Length (ft)</label>
+          <input type="number" id="f_length" placeholder="30" step="0.01" min="0" inputmode="decimal">
+        </div>
+        <div class="field">
+          <label for="f_breadth">Breadth (ft)</label>
+          <input type="number" id="f_breadth" placeholder="40" step="0.01" min="0" inputmode="decimal">
+        </div>
+      </div>
+
+      <div class="area-box">
+        <div class="cell">
+          <span class="lbl">Area (sq ft)</span>
+          <span class="val" id="calc_area">—</span>
+        </div>
+        <div class="cell">
+          <span class="lbl">Area (sq yd)</span>
+          <span class="val" id="calc_sqyd">—</span>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:12px">
+        <label for="f_ankanams">Ankanams (auto from size)</label>
+        <div class="input-with-btn">
+          <input type="number" id="f_ankanams" placeholder="Auto-calculated" step="0.01" min="0" inputmode="decimal">
+          <button type="button" class="recalc-btn" id="recalcAnkBtn" title="Recalculate from plot size">↻</button>
+        </div>
+        <div class="field-hint">
+          1 Ankanam = 72 sq ft. Formula: <b>(L × B) ÷ 72</b>. Edit to override manually.
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top:20px">Ankanam Pricing</div>
+
+      <div class="field">
+        <label for="f_rate">Rate per Ankanam (₹)</label>
+        <input type="number" id="f_rate" placeholder="e.g. 80000" step="100" min="0" inputmode="numeric">
+        <div class="field-hint">Auto-suggested from block &amp; facing.</div>
+      </div>
+
+      <div class="pricing-panel">
+        <div class="calc-row">
+          <span class="lbl">Ankanams</span>
+          <span class="val" id="calc_ank">—</span>
+        </div>
+        <div class="calc-row">
+          <span class="lbl">Rate / Ankanam</span>
+          <span class="val" id="calc_rate">₹0</span>
+        </div>
+        <div class="total-row">
+          <span class="lbl">Total Plot Cost</span>
+          <span class="val" id="calc_total">₹0</span>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top:20px">Status</div>
+
+      <div class="field">
+        <div class="field-status" id="f_status">
+          <input type="radio" name="status" id="s_available"    value="available">
+          <label for="s_available"    data-status="available">Available</label>
+          <input type="radio" name="status" id="s_booked"       value="booked">
+          <label for="s_booked"       data-status="booked">Booked</label>
+          <input type="radio" name="status" id="s_sold"         value="sold">
+          <label for="s_sold"         data-status="sold">Sold</label>
+          <input type="radio" name="status" id="s_onhold"       value="onhold">
+          <label for="s_onhold"       data-status="onhold">On Hold</label>
+          <input type="radio" name="status" id="s_mortgage"     value="mortgage">
+          <label for="s_mortgage"     data-status="mortgage">Mortgage</label>
+          <input type="radio" name="status" id="s_registration" value="registration">
+          <label for="s_registration" data-status="registration">Registration</label>
+          <input type="radio" name="status" id="s_houses"       value="houses">
+          <label for="s_houses"       data-status="houses">Houses</label>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn-delete-edit" id="modalDeleteBtn" onclick="deleteFromModal()">🗑️ Delete</button>
+      <button class="btn-cancel" onclick="closeEditModal()">Cancel</button>
+      <button class="btn-save" onclick="saveEdit()">✅ Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- WELCOME -->
+<div class="welcome" id="welcome">
+  <div class="welcome-box">
+    <h1>ISKON CITY-II</h1>
+    <div class="sub">Interactive Plot Map · Auto Ankanam Calculator</div>
+    <p><b>1.</b> Tap <b>☰ More → 🖼️ Load Layout</b> and choose your layout image (JPG/PNG).</p>
+    <p><b>2.</b> Tap <b>✏️ Draw Plot</b>, tap each corner on the map, then <b>✅ Save Plot</b>.</p>
+    <p><b>3.</b> Enter <b>Length</b> and <b>Breadth</b> — ankanams and total cost calculate automatically.</p>
+    <div class="formula">Ankanams = (Length × Breadth) ÷ 72</div>
+    <p style="font-size:12px;color:#888;margin-top:14px">Your work is auto-saved in this browser.</p>
+    <button class="btn-start" onclick="document.getElementById('welcome').style.display='none'">Let's Start →</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ============================================================
+   ISKON CITY-II — Interactive Plot Map with Auto Ankanam Calculator
+   Formula: Ankanams = (Length × Breadth) ÷ 72
+   ============================================================ */
+
+const SQFT_PER_ANKANAM = 72;         /* 1 Ankanam = 72 sq ft */
+const SQFT_PER_SQYD    = 9;          /* 1 sq yard = 9 sq ft  */
+
+const RATES_PER_ANKANAM = {
+  'A Block': { East: 80000, West: 79000 },
+  'B Block': { East: 70000, West: 69000 },
+  'C Block': { East: 60000, West: 59000 }
+};
+
+const PLOT_KEY = 'iskon_plots_v5_autoank';
+const IMG_KEY  = 'iskon_image_v3';
+
+const IS_MOBILE = window.matchMedia('(max-width: 768px)').matches;
+
+/* ---------- MAP ---------- */
+const map = L.map('map', {
+  crs: L.CRS.Simple,
+  minZoom: -4, maxZoom: 6, zoomSnap: 0.25,
+  attributionControl: false, maxBoundsViscosity: 0.6,
+  tap: true, touchZoom: true, dragging: true
+}).setView([500, 500], 0);
+
+let imageLayer = null;
+let imageBounds = [[0, 0], [1000, 1000]];
+
+function applyImage(src, w, h) {
+  imageBounds = [[0, 0], [h, w]];
+  if (imageLayer) map.removeLayer(imageLayer);
+  imageLayer = L.imageOverlay(src, imageBounds).addTo(map);
+  map.setMaxBounds([[-h * 0.3, -w * 0.3], [h * 1.3, w * 1.3]]);
+  map.fitBounds(imageBounds);
+  document.getElementById('welcome').style.display = 'none';
+  updateLabelFont();
+}
+function loadImage(src, persist) {
+  const im = new Image();
+  im.onload = () => {
+    applyImage(src, im.naturalWidth, im.naturalHeight);
+    if (persist) { try { localStorage.setItem(IMG_KEY, src); } catch (e) {} }
+  };
+  im.onerror = () => alert('Could not read that image. Please use JPG or PNG.');
+  im.src = src;
+}
+(function () {
+  const saved = localStorage.getItem(IMG_KEY);
+  if (saved) loadImage(saved, false);
+})();
+
+document.getElementById('imgInput').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => loadImage(ev.target.result, true);
+  r.readAsDataURL(f);
+  e.target.value = '';
+  closeMoreSheet();
+});
+
+/* ---------- PLOT DATA ---------- */
+let plots = [];
+try { plots = JSON.parse(localStorage.getItem(PLOT_KEY)) || []; } catch (e) { plots = []; }
+
+/* Sample plots — ankanams auto-calculated from length & breadth */
+if (!localStorage.getItem(PLOT_KEY)) {
+  const samples = [
+    { plotNo: 'A-1', block: 'A Block', phase: 'Phase-1', facing: 'East', length_ft: 30, breadth_ft: 40, ankanam_rate: 80000, status: 'available',    coords: [[160,140],[160,200],[215,200],[215,140]] },
+    { plotNo: 'A-2', block: 'A Block', phase: 'Phase-1', facing: 'West', length_ft: 30, breadth_ft: 40, ankanam_rate: 79000, status: 'booked',       coords: [[160,210],[160,270],[215,270],[215,210]] },
+    { plotNo: 'B-1', block: 'B Block', phase: 'Phase-2', facing: 'East', length_ft: 30, breadth_ft: 50, ankanam_rate: 70000, status: 'sold',         coords: [[260,140],[260,200],[320,200],[320,140]] },
+    { plotNo: 'B-2', block: 'B Block', phase: 'Phase-2', facing: 'West', length_ft: 30, breadth_ft: 50, ankanam_rate: 69000, status: 'onhold',       coords: [[260,210],[260,270],[320,270],[320,210]] },
+    { plotNo: 'C-1', block: 'C Block', phase: 'Phase-3', facing: 'East', length_ft: 30, breadth_ft: 60, ankanam_rate: 60000, status: 'available',    coords: [[360,140],[360,210],[430,210],[430,140]] },
+    { plotNo: 'C-2', block: 'C Block', phase: 'Phase-3', facing: 'West', length_ft: 30, breadth_ft: 60, ankanam_rate: 59000, status: 'registration', coords: [[360,220],[360,290],[430,290],[430,220]] }
+  ];
+  plots = samples.map(p => computePlot(p));
+  localStorage.setItem(PLOT_KEY, JSON.stringify(plots));
+}
+
+/* ---------- CORE CALCULATION ---------- */
+function computePlot(p) {
+  const L = Number(p.length_ft) || 0;
+  const B = Number(p.breadth_ft) || 0;
+  const area_sqft = L * B;
+  const area_sqyd = area_sqft / SQFT_PER_SQYD;
+  const ankanams  = area_sqft / SQFT_PER_ANKANAM;
+  const rate      = Number(p.ankanam_rate) || 0;
+  const total     = Math.round(ankanams * rate);
+
+  return {
+    ...p,
+    area_sqft: Math.round(area_sqft * 100) / 100,
+    area_sqyd: Math.round(area_sqyd * 100) / 100,
+    ankanams:  Math.round(ankanams * 100) / 100,
+    total_cost: total
+  };
+}
+
+/* ============================================================
+   UNDO / REDO
+   ============================================================ */
+const undoStack = [];
+const redoStack = [];
+const MAX_HISTORY = 60;
+const ACTION_LABELS = { add:'add plot', delete:'delete plot', edit:'edit plot', clear:'clear all', import:'restore' };
+const snapshot = () => JSON.parse(JSON.stringify(plots));
+
+function recordAction(type, meta, beforeState) {
+  undoStack.push({ type, meta, before: beforeState, after: snapshot(), at: Date.now() });
+  if (undoStack.length > MAX_HISTORY) undoStack.shift();
+  redoStack.length = 0;
+  updateHistoryButtons();
+}
+function updateHistoryButtons() {
+  const canUndo = (drawing && tempPts.length > 0) || undoStack.length > 0;
+  const canRedo = !drawing && redoStack.length > 0;
+  document.getElementById('undoBtn').disabled = !canUndo;
+  document.getElementById('redoBtn').disabled = !canRedo;
+}
+function applyState(state) {
+  plots = JSON.parse(JSON.stringify(state));
+  savePlots(); renderPlots(); closeInfoCard();
+}
+function undo() {
+  if (drawing && tempPts.length > 0) {
+    tempPts.pop(); redrawTempLine();
+    drawBanner.textContent = tempPts.length
+      ? `✏️ ${tempPts.length} point(s) — tap more or press ✅ Save Plot`
+      : '✏️ Tap the corners of the plot on the map';
+    toast('Removed last corner');
+    updateHistoryButtons(); return;
+  }
+  if (undoStack.length === 0) { toast('Nothing to undo'); return; }
+  const action = undoStack.pop();
+  redoStack.push(action);
+  applyState(action.before);
+  toast('↶ Undo: ' + (ACTION_LABELS[action.type] || action.type));
+  updateHistoryButtons();
+}
+function redo() {
+  if (redoStack.length === 0) { toast('Nothing to redo'); return; }
+  const action = redoStack.pop();
+  undoStack.push(action);
+  applyState(action.after);
+  toast('↷ Redo: ' + (ACTION_LABELS[action.type] || action.type));
+  updateHistoryButtons();
+}
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('redoBtn').addEventListener('click', redo);
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault(); if (e.shiftKey) redo(); else undo();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+    e.preventDefault(); redo();
+  }
+  if (e.key === 'Escape') {
+    if (editMode) toggleEditMode();
+    if (deleteMode) toggleDeleteMode();
+    if (drawing) stopDraw();
+    if (document.getElementById('editModal').classList.contains('show')) closeEditModal();
+    closeMoreSheet();
+  }
+});
+
+/* ---------- LAYERS & COLORS ---------- */
+const plotLayer = L.layerGroup().addTo(map);
+const plotLayers = {};
+let selectedPlotNo = null;
+
+const COLORS = {
+  available:'#28a745', booked:'#e83e8c', sold:'#dc3545', onhold:'#ffc107',
+  mortgage:'#fd7e14', registration:'#17a2b8', houses:'#198754'
+};
+const LABELS = {
+  available:'Available', booked:'Booked', sold:'Sold', onhold:'On Hold',
+  mortgage:'Mortgage', registration:'Registration', houses:'Houses'
+};
+const colorOf = s => COLORS[(s || '').toLowerCase()] || '#3388ff';
+const labelOf = s => LABELS[(s || '').toLowerCase()] || s;
+const savePlots = () => localStorage.setItem(PLOT_KEY, JSON.stringify(plots));
+const fmtMoney = n => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const fmtNum   = n => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+/* ---------- RENDER ---------- */
+function renderPlots() {
+  plotLayer.clearLayers();
+  Object.keys(plotLayers).forEach(k => delete plotLayers[k]);
+
+  plots.forEach(p => {
+    const c = colorOf(p.status);
+    const poly = L.polygon(p.coords, {
+      color: c, weight: 2, fillColor: c, fillOpacity: 0.5
+    });
+    poly.on('click', (e) => {
+      /* While drawing, let the tap fall through to the map so a corner is added */
+      if (drawing) return;
+      L.DomEvent.stopPropagation(e);
+      if (deleteMode) handleDeleteClick(p);
+      else if (editMode) openEditModal(p.plotNo);
+      else showInfo(p);
+    });
+    poly.on('mouseover', () => {
+      if (deleteMode || editMode) poly.getElement()?.classList.add('delete-hover');
+    });
+    poly.on('mouseout', () => {
+      poly.getElement()?.classList.remove('delete-hover');
+    });
+
+    const ctr = poly.getBounds().getCenter();
+    const statusClass = ['sold','booked','onhold'].includes((p.status||'').toLowerCase())
+      ? p.status.toLowerCase() : '';
+
+    L.marker(ctr, {
+      interactive: false,
+      icon: L.divIcon({
+        className: 'plot-label ' + statusClass,
+        html: '<span>' + p.plotNo + '</span>',
+        iconSize: [0, 0], iconAnchor: [0, 0]
+      })
+    }).addTo(plotLayer);
+
+    poly.addTo(plotLayer);
+    plotLayers[p.plotNo] = poly;
+  });
+  updateLabelFont();
+}
+function updateLabelFont() {
+  const z = map.getZoom();
+  let size = 10 * Math.pow(1.25, z);
+  size = Math.max(6, Math.min(16, size));
+  map.getContainer().style.setProperty('--label-font', size.toFixed(1) + 'px');
+}
+map.on('zoomend zoom', updateLabelFont);
+
+/* ---------- INFO CARD ---------- */
+function showInfo(p) {
+  selectedPlotNo = p.plotNo;
+  const c = colorOf(p.status);
+  document.getElementById('infoContent').innerHTML = `
+    <h3 style="color:${c}">Plot ${p.plotNo}</h3>
+    <div class="row"><span>Block</span><span>${p.block || '—'}</span></div>
+    <div class="row"><span>Phase</span><span>${p.phase || '—'}</span></div>
+    <div class="row"><span>Facing</span><span>${p.facing || '—'}</span></div>
+
+    <div class="size-box">
+      <div class="line"><span>Length</span><span>${fmtNum(p.length_ft)} ft</span></div>
+      <div class="line"><span>Breadth</span><span>${fmtNum(p.breadth_ft)} ft</span></div>
+      <div class="line"><span>Area</span><span>${fmtNum(p.area_sqft)} sq ft</span></div>
+      <div class="line"><span>Area</span><span>${fmtNum(p.area_sqyd)} sq yd</span></div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="row"><span>Ankanams</span><span>${fmtNum(p.ankanams)}</span></div>
+    <div class="row"><span>Rate / Ankanam</span><span style="color:#0a58ca">${fmtMoney(p.ankanam_rate)}</span></div>
+    <div class="total-box">
+      <span class="lbl">Total Plot Cost</span>
+      <span class="val">${fmtMoney(p.total_cost)}</span>
+    </div>
+    <div class="row"><span>Status</span>
+      <span style="background:${c};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${labelOf(p.status)}</span>
+    </div>
+    <div class="actions">
+      <button class="btn-edit" onclick="openEditModal('${p.plotNo}')">📝 Edit</button>
+      <button class="btn-delete" onclick="deletePlotByNo('${p.plotNo}')">🗑️ Delete</button>
+    </div>
+  `;
+  document.getElementById('infoCard').style.display = 'block';
+}
+function closeInfoCard() {
+  document.getElementById('infoCard').style.display = 'none';
+  selectedPlotNo = null;
+}
+
+/* ============================================================
+   EDIT / ADD MODAL
+   ============================================================ */
+let editingPlotNo = null;   /* null → adding new plot */
+let pendingCoords = null;   /* coords for new plot */
+
+function openEditModal(plotNo) {
+  const p = plots.find(x => String(x.plotNo) === String(plotNo));
+  if (!p) return;
+  editingPlotNo = p.plotNo;
+  pendingCoords = null;
+  closeInfoCard();
+
+  document.getElementById('modalTitle').textContent = 'Edit Plot ' + p.plotNo;
+  document.getElementById('modalDeleteBtn').style.display = 'block';
+
+  document.getElementById('f_plotNo').value    = p.plotNo || '';
+  document.getElementById('f_phase').value     = p.phase || 'Phase-1';
+  document.getElementById('f_block').value     = p.block || 'A Block';
+  document.getElementById('f_facing').value    = p.facing || 'East';
+  document.getElementById('f_length').value    = p.length_ft || '';
+  document.getElementById('f_breadth').value   = p.breadth_ft || '';
+  document.getElementById('f_ankanams').value  = p.ankanams != null ? p.ankanams : '';
+  document.getElementById('f_ankanams').dataset.manual = 'true';
+  document.getElementById('f_rate').value      = p.ankanam_rate != null ? p.ankanam_rate : '';
+
+  const radios = document.querySelectorAll('input[name="status"]');
+  radios.forEach(r => { r.checked = r.value === (p.status || 'available'); });
+  updateStatusLabels();
+  updatePricing();
+
+  document.getElementById('editModal').classList.add('show');
+  if (!IS_MOBILE) setTimeout(() => document.getElementById('f_plotNo').focus(), 100);
+}
+
+/* -------- Open modal for a NEW plot -------- */
+function openAddModal(coords) {
+  editingPlotNo = null;
+  pendingCoords = coords;
+  closeInfoCard();
+
+  document.getElementById('modalTitle').textContent = 'Add New Plot';
+  document.getElementById('modalDeleteBtn').style.display = 'none';
+
+  document.getElementById('f_plotNo').value    = '';
+  document.getElementById('f_phase').value     = 'Phase-1';
+  document.getElementById('f_block').value     = 'A Block';
+  document.getElementById('f_facing').value    = 'East';
+  document.getElementById('f_length').value    = '';
+  document.getElementById('f_breadth').value   = '';
+  document.getElementById('f_ankanams').value  = '';
+  document.getElementById('f_ankanams').dataset.manual = 'false';
+  document.getElementById('f_rate').value      = RATES_PER_ANKANAM['A Block']['East'];
+
+  document.querySelectorAll('input[name="status"]').forEach(r => {
+    r.checked = r.value === 'available';
+  });
+  updateStatusLabels();
+  updatePricing();
+
+  document.getElementById('editModal').classList.add('show');
+  if (!IS_MOBILE) setTimeout(() => document.getElementById('f_plotNo').focus(), 100);
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('show');
+  editingPlotNo = null;
+  pendingCoords = null;
+}
+
+function updateStatusLabels() {
+  document.querySelectorAll('#f_status label').forEach(lbl => {
+    const radio = document.getElementById(lbl.getAttribute('for'));
+    lbl.classList.toggle('checked', radio && radio.checked);
+  });
+}
+
+/* ---------- LIVE PRICING + ANKANAM CALCULATION ---------- */
+function updatePricing() {
+  const L = parseFloat(document.getElementById('f_length').value) || 0;
+  const B = parseFloat(document.getElementById('f_breadth').value) || 0;
+  const area_sqft = L * B;
+  const area_sqyd = area_sqft / SQFT_PER_SQYD;
+  const autoAnkanams = area_sqft / SQFT_PER_ANKANAM;
+
+  const ankField = document.getElementById('f_ankanams');
+  if (!ankField.dataset.manual || ankField.dataset.manual !== 'true') {
+    ankField.value = autoAnkanams > 0 ? autoAnkanams.toFixed(2) : '';
+  }
+
+  const ankanams = parseFloat(ankField.value) || 0;
+  const rate     = Number(document.getElementById('f_rate').value) || 0;
+  const total    = Math.round(ankanams * rate);
+
+  document.getElementById('calc_area').textContent   = area_sqft > 0 ? fmtNum(Math.round(area_sqft * 100) / 100) + ' sq ft' : '—';
+  document.getElementById('calc_sqyd').textContent   = area_sqyd > 0 ? fmtNum(Math.round(area_sqyd * 100) / 100) + ' sq yd' : '—';
+  document.getElementById('calc_ank').textContent    = ankanams > 0 ? fmtNum(ankanams) : '—';
+  document.getElementById('calc_rate').textContent   = fmtMoney(rate);
+  document.getElementById('calc_total').textContent  = fmtMoney(total);
+}
+
+/* ---------- LISTENERS ---------- */
+document.querySelectorAll('input[name="status"]').forEach(r => {
+  r.addEventListener('change', updateStatusLabels);
+});
+
+document.getElementById('f_length').addEventListener('input', () => {
+  document.getElementById('f_ankanams').dataset.manual = 'false';
+  updatePricing();
+});
+document.getElementById('f_breadth').addEventListener('input', () => {
+  document.getElementById('f_ankanams').dataset.manual = 'false';
+  updatePricing();
+});
+
+document.getElementById('f_ankanams').addEventListener('input', () => {
+  document.getElementById('f_ankanams').dataset.manual = 'true';
+  updatePricing();
+});
+
+document.getElementById('recalcAnkBtn').addEventListener('click', () => {
+  document.getElementById('f_ankanams').dataset.manual = 'false';
+  updatePricing();
+  toast('↻ Ankanams recalculated from size');
+});
+
+document.getElementById('f_rate').addEventListener('input', updatePricing);
+
+document.getElementById('f_block').addEventListener('change', autoSuggestRate);
+document.getElementById('f_facing').addEventListener('change', autoSuggestRate);
+function autoSuggestRate() {
+  const block  = document.getElementById('f_block').value;
+  const facing = document.getElementById('f_facing').value;
+  if (RATES_PER_ANKANAM[block] && RATES_PER_ANKANAM[block][facing]) {
+    document.getElementById('f_rate').value = RATES_PER_ANKANAM[block][facing];
+    updatePricing();
+  }
+}
+
+/* ---------- SAVE (both edit and add) ---------- */
+function saveEdit() {
+  const newPlotNo = document.getElementById('f_plotNo').value.trim();
+  if (!newPlotNo) { alert('Plot number cannot be empty.'); return; }
+
+  const L = parseFloat(document.getElementById('f_length').value);
+  const B = parseFloat(document.getElementById('f_breadth').value);
+  if (!L || !B || L <= 0 || B <= 0) {
+    alert('Please enter valid Length and Breadth (both > 0).');
+    return;
+  }
+
+  const ankanams = parseFloat(document.getElementById('f_ankanams').value);
+  if (!ankanams || ankanams <= 0) {
+    alert('Ankanams must be greater than 0.');
+    return;
+  }
+
+  const rate = Number(document.getElementById('f_rate').value) || 0;
+  if (rate <= 0) { alert('Rate per Ankanam must be greater than 0.'); return; }
+
+  const newStatus = document.querySelector('input[name="status"]:checked')?.value || 'available';
+
+  const base = {
+    plotNo: newPlotNo,
+    phase:  document.getElementById('f_phase').value,
+    block:  document.getElementById('f_block').value,
+    facing: document.getElementById('f_facing').value,
+    length_ft: L,
+    breadth_ft: B,
+    ankanams: ankanams,
+    ankanam_rate: rate,
+    status: COLORS[newStatus] ? newStatus : 'available'
+  };
+  const computed = computePlot(base);
+  const userAnk = parseFloat(document.getElementById('f_ankanams').value);
+  if (!isNaN(userAnk) && userAnk > 0) {
+    computed.ankanams = Math.round(userAnk * 100) / 100;
+    computed.total_cost = Math.round(userAnk * rate);
+  }
+
+  const before = snapshot();
+
+  if (editingPlotNo !== null) {
+    const p = plots.find(x => String(x.plotNo) === String(editingPlotNo));
+    if (!p) return;
