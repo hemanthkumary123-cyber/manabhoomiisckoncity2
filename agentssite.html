@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d6efd">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
+<title>ISKON CITY-II — Plot Map (View)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root{
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --top-h: 58px;
+    --bar-h: 60px;
+    --brand: #0d6efd;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; background: #f5f5f5;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  #map {
+    position: absolute; inset: 0; background: #e9ecef;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  /* ============================================================
+     TOP BAR
+     ============================================================ */
+  .topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 1200;
+    display: flex; align-items: center; gap: 8px;
+    padding: calc(6px + var(--safe-t)) calc(10px + var(--safe-r)) 6px calc(10px + var(--safe-l));
+    background: rgba(255,255,255,0.97);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    box-shadow: 0 2px 14px rgba(0,0,0,0.12);
+    border-radius: 0 0 14px 14px;
+  }
+  .brand {
+    font-weight: 800; font-size: 15px; color: var(--brand);
+    white-space: nowrap; letter-spacing: -0.2px;
+  }
+  .search-box { margin-left: auto; display: flex; gap: 6px; }
+  .search-box input {
+    padding: 8px 12px; border: 1px solid #d0d5dd; border-radius: 8px;
+    width: 170px; font-size: 14px; outline: none; font-family: inherit;
+  }
+  .search-box input:focus { border-color: var(--brand); }
+  .search-box button {
+    padding: 8px 14px; border: none; border-radius: 8px;
+    background: var(--brand); color: #fff; cursor: pointer;
+    font-weight: 600; font-size: 14px; font-family: inherit;
+  }
+  .search-toggle { display: none; }
+
+  /* ============================================================
+     CUSTOM ZOOM CONTROLS  (middle-right)
+     ============================================================ */
+  .zoom-ctrl {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1100;
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #d8dde5;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  }
+  .zoom-ctrl button {
+    width: 46px; height: 46px;
+    border: none;
+    background: #fff;
+    font-size: 26px;
+    font-weight: 500;
+    color: #1f2937;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-family: inherit; padding: 0; line-height: 1;
+    transition: background 0.12s;
+    touch-action: manipulation;
+    -webkit-user-select: none; user-select: none;
+  }
+  .zoom-ctrl button:hover { background: #f0f4f8; }
+  .zoom-ctrl button:active { background: #dde3ea; }
+  .zoom-ctrl button:first-child { border-bottom: 1px solid #e5e7eb; }
+  .zoom-ctrl button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* ============================================================
+     BOTTOM ACTION BAR  (view-only)
+     ============================================================ */
+  .actionbar {
+    position: absolute; z-index: 1100;
+    bottom: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; align-items: center;
+    background: rgba(255,255,255,0.98);
+    padding: 8px 10px; border-radius: 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+  }
+  .actionbar button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 10px 18px; border: 1px solid #d0d5dd; border-radius: 10px;
+    background: #fff; cursor: pointer; font-size: 13px; font-weight: 600;
+    white-space: nowrap; color: #333; font-family: inherit;
+    min-height: 42px; line-height: 1; touch-action: manipulation;
+    transition: all 0.15s;
+  }
+  .actionbar button:hover { background: #f0f4f8; border-color: #94a3b8; }
+  .actionbar button .ico { font-size: 16px; line-height: 1; }
+
+  /* ============================================================
+     LEGEND
+     ============================================================ */
+  .legend {
+    position: absolute; bottom: 14px; right: 14px; z-index: 1000;
+    background: rgba(255,255,255,0.98); padding: 12px 14px; border-radius: 10px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15); font-size: 12px; line-height: 1.7;
+  }
+  .legend b { display: block; margin-bottom: 8px; font-size: 13px; color: #333; }
+  .legend .row { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.15); }
+
+  /* ============================================================
+     MAP LABELS
+     ============================================================ */
+  .plot-label { pointer-events: none; background: transparent !important; border: none !important; }
+  .plot-label > span {
+    position: absolute; left: 0; top: 0;
+    transform: translate(-50%, -50%);
+    background: rgba(255,255,255,0.92);
+    border: 1px solid #333; border-radius: 0.3em;
+    padding: 0.1em 0.45em;
+    font-size: var(--label-font, 10px);
+    font-weight: 700; color: #000; white-space: nowrap;
+    line-height: 1.15; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    transition: font-size 0.15s ease-out;
+  }
+  .plot-label.sold   > span { background: rgba(220,53,69,0.95); color:#fff; border-color:#a71d2a; }
+  .plot-label.booked > span { background: rgba(232,62,140,0.95); color:#fff; border-color:#b32565; }
+  .plot-label.onhold > span { background: rgba(255,193,7,0.95); border-color:#b38600; }
+
+  /* ============================================================
+     WELCOME
+     ============================================================ */
+  .welcome {
+    position: absolute; inset: 0; z-index: 900;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(15,23,42,0.55);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+    padding: 16px;
+  }
+  .welcome-box {
+    background: #fff; padding: 30px 32px; border-radius: 18px; text-align: center;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3); max-width: 480px; width: 100%;
+  }
+  .welcome-box h1 { margin: 0 0 8px; font-size: 22px; color: var(--brand); }
+  .welcome-box .sub { font-size: 13px; color: #666; margin-bottom: 20px; }
+  .welcome-box p { margin: 10px 0; font-size: 14px; color: #444; line-height: 1.6; text-align: left; }
+  .welcome-box .btn-start {
+    display: inline-block; background: var(--brand); color: #fff; padding: 12px 26px;
+    border-radius: 10px; font-weight: 700; cursor: pointer; margin-top: 16px;
+    font-size: 15px; border: none; font-family: inherit;
+  }
+  .welcome-box .btn-start:hover { background: #0b5ed7; }
+
+  /* ============================================================
+     INFO CARD
+     ============================================================ */
+  .info-card {
+    position: absolute; bottom: 78px; left: 14px; z-index: 1000;
+    background: rgba(255,255,255,0.98); padding: 14px 16px; border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18); font-size: 13px;
+    min-width: 250px; max-width: 300px; display: none;
+  }
+  .info-card h3 { margin: 0 0 10px; font-size: 16px; }
+  .info-card .row { display: flex; justify-content: space-between; padding: 3px 0; gap: 8px; }
+  .info-card .row span:first-child { color: #666; }
+  .info-card .row span:last-child { font-weight: 600; color: #222; text-align: right; }
+  .info-card .close {
+    position: absolute; top: 8px; right: 10px; cursor: pointer;
+    font-size: 20px; color: #888; background: none; border: none;
+    width: 32px; height: 32px; line-height: 1;
+  }
+  .info-card .divider { height: 1px; background: #e5e7eb; margin: 8px 0; }
+  .info-card .size-box {
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 8px 10px; margin: 6px 0; font-size: 12px;
+  }
+  .info-card .size-box .line { display: flex; justify-content: space-between; padding: 2px 0; }
+  .info-card .size-box .line span:first-child { color: #64748b; }
+  .info-card .size-box .line span:last-child { font-weight: 600; color: #334155; }
+  .info-card .total-box {
+    background: linear-gradient(135deg, #f0f7ff, #e0efff);
+    border: 1px solid #cfe2ff; border-radius: 10px;
+    padding: 10px 12px; margin: 8px 0;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .info-card .total-box .lbl {
+    font-size: 11px; font-weight: 700; color: #0a58ca;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .info-card .total-box .val {
+    font-size: 19px; font-weight: 800; color: var(--brand);
+    letter-spacing: -0.4px;
+  }
+
+  .toast {
+    position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+    z-index: 3000; background: #222; color: #fff; padding: 10px 20px;
+    border-radius: 24px; font-size: 13px; font-weight: 500;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3); opacity: 0;
+    transition: opacity 0.25s; pointer-events: none; white-space: nowrap;
+    max-width: calc(100% - 32px);
+  }
+  .toast.show { opacity: 1; }
+
+  @keyframes sheetUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ============================================================
+     MOBILE  (≤ 768px)
+     ============================================================ */
+  @media (max-width: 768px) {
+
+    /* ---- Top bar ---- */
+    .topbar { flex-wrap: wrap; gap: 6px; padding-top: calc(8px + var(--safe-t)); }
+    .brand { font-size: 14px; }
+    .search-toggle {
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-left: auto; width: 42px; height: 42px; flex-shrink: 0;
+      border: none; border-radius: 10px; background: #eef2f7;
+      font-size: 18px; cursor: pointer; font-family: inherit;
+    }
+    .search-toggle.active { background: var(--brand); }
+    .search-box { display: none; width: 100%; margin-left: 0; }
+    .search-box.show { display: flex; }
+    .search-box input { flex: 1; width: auto; font-size: 16px; padding: 11px 12px; }
+    .search-box button { padding: 11px 18px; font-size: 15px; }
+
+    /* ---- Zoom controls: right side, thumb-friendly, above the action bar ---- */
+    .zoom-ctrl {
+      right: calc(10px + var(--safe-r));
+      top: auto;
+      bottom: calc(var(--bar-h) + 22px);
+      transform: none;
+      border-radius: 14px;
+    }
+    .zoom-ctrl button {
+      width: 52px; height: 52px;
+      font-size: 28px;
+    }
+
+    /* ---- Bottom action bar ---- */
+    .actionbar {
+      left: 0; right: 0; transform: none;
+      bottom: 0;
+      border-radius: 16px 16px 0 0;
+      padding: 10px calc(10px + var(--safe-r)) calc(10px + var(--safe-b)) calc(10px + var(--safe-l));
+      gap: 8px;
+      box-shadow: 0 -4px 22px rgba(0,0,0,0.18);
+      justify-content: center;
+    }
+    .actionbar button {
+      flex: 1;
+      flex-direction: column;
+      gap: 3px;
+      min-height: 56px;
+      padding: 8px 10px;
+      font-size: 11px; font-weight: 700;
+      border-radius: 12px;
+    }
+    .actionbar button .ico { font-size: 20px; }
+    .actionbar button .lbl { font-size: 11px; }
+
+    /* ---- Legend as a sheet ---- */
+    .legend {
+      display: none;
+      left: calc(8px + var(--safe-l));
+      right: calc(8px + var(--safe-r));
+      bottom: calc(var(--bar-h) + 10px);
+      z-index: 1400;
+      font-size: 12px;
+      max-height: 55vh; overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 16px;
+    }
+    .legend.show { display: block; animation: sheetUp 0.2s ease-out; }
+
+    /* ---- Info card as a sheet ---- */
+    .info-card {
+      left: calc(8px + var(--safe-l));
+      right: calc(8px + var(--safe-r));
+      bottom: calc(var(--bar-h) + 10px);
+      min-width: 0; max-width: none;
+      max-height: 55vh; overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 16px;
+      z-index: 1400;
+      animation: sheetUp 0.2s ease-out;
+    }
+
+    .toast {
+      bottom: calc(var(--bar-h) + 18px);
+      font-size: 12px;
+      white-space: normal;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .welcome {
+      padding: calc(14px + var(--safe-t)) 14px calc(14px + var(--safe-b));
+      align-items: center;
+    }
+    .welcome-box {
+      padding: 22px 20px;
+      border-radius: 16px;
+      max-height: 88vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .welcome-box h1 { font-size: 19px; }
+    .welcome-box .sub { font-size: 12px; margin-bottom: 14px; }
+    .welcome-box p { font-size: 13px; margin: 8px 0; }
+    .welcome-box .btn-start { width: 100%; padding: 15px; font-size: 16px; }
+  }
+
+  /* ============================================================
+     TABLET  (769px – 1024px)
+     ============================================================ */
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .zoom-ctrl { right: 16px; }
+    .zoom-ctrl button { width: 48px; height: 48px; font-size: 26px; }
+  }
+
+  /* Small phones */
+  @media (max-width: 380px) {
+    .zoom-ctrl button { width: 46px; height: 46px; font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- ============ TOP BAR ============ -->
+<div class="topbar">
+  <span class="brand">🏗️ ISKON CITY-II</span>
+  <div class="search-box" id="searchBox">
+    <input type="text" id="searchInput" placeholder="Plot No (A-1)" autocomplete="off">
+    <button id="searchBtn" type="button">🔍</button>
+  </div>
+  <button class="search-toggle" id="searchToggle" type="button" aria-label="Search plot">🔍</button>
+</div>
+
+<!-- ============ CUSTOM ZOOM CONTROLS ============ -->
+<div class="zoom-ctrl" id="zoomCtrl" role="group" aria-label="Map zoom">
+  <button id="zoomInBtn" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+  <button id="zoomOutBtn" type="button" aria-label="Zoom out" title="Zoom out">−</button>
+</div>
+
+<!-- ============ BOTTOM ACTION BAR (view only) ============ -->
+<div class="actionbar" id="actionbar">
+  <button id="fitBtn" type="button"><span class="ico">🎯</span><span class="lbl">Fit View</span></button>
+  <button id="legendBtn" type="button"><span class="ico">🎨</span><span class="lbl">Legend</span></button>
+</div>
+
+<div class="info-card" id="infoCard">
+  <button class="close" onclick="closeInfoCard()">×</button>
+  <div id="infoContent"></div>
+</div>
+
+<div class="legend" id="legend">
+  <b>Status Legend</b>
+  <div class="row"><span class="dot" style="background:#28a745"></span> Available</div>
+  <div class="row"><span class="dot" style="background:#e83e8c"></span> Booked</div>
+  <div class="row"><span class="dot" style="background:#dc3545"></span> Sold</div>
+  <div class="row"><span class="dot" style="background:#ffc107"></span> On Hold</div>
+  <div class="row"><span class="dot" style="background:#fd7e14"></span> Mortgage</div>
+  <div class="row"><span class="dot" style="background:#17a2b8"></span> Registration</div>
+  <div class="row"><span class="dot" style="background:#198754"></span> Houses</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- WELCOME -->
+<div class="welcome" id="welcome">
+  <div class="welcome-box">
+    <h1>ISKON CITY-II</h1>
+    <div class="sub">Plot Map Viewer</div>
+    <p><b>1.</b> Drag to pan, pinch or use <b>+ / −</b> on the right to zoom.</p>
+    <p><b>2.</b> Tap any plot to see its full details.</p>
+    <p><b>3.</b> Use <b>🔍 Search</b> to jump to a plot number, or <b>🎯 Fit View</b> to see the whole layout.</p>
+    <button class="btn-start" onclick="document.getElementById('welcome').style.display='none'">Let's Start →</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ============================================================
+   ISKON CITY-II — PLOT MAP VIEWER (read-only for agents)
+   ============================================================ */
+
+const SQFT_PER_ANKANAM = 72;
+const SQFT_PER_SQYD    = 9;
+
+const PLOT_KEY = 'iskon_plots_v5_autoank';
+const IMG_KEY  = 'iskon_image_v3';
+
+/* ---- Device detection (used to adapt behaviour at runtime) ---- */
+const mqMobile = window.matchMedia('(max-width: 768px)');
+function isMobile() { return mqMobile.matches; }
+
+/* ---------- MAP ---------- */
+const map = L.map('map', {
+  crs: L.CRS.Simple,
+  minZoom: -4, maxZoom: 6, zoomSnap: 0.25,
+  attributionControl: false, maxBoundsViscosity: 0.6,
+  tap: true, touchZoom: true, dragging: true,
+  zoomControl: false,           /* we use our own custom zoom buttons */
+  doubleClickZoom: !isMobile()  /* double-tap zoom can be annoying on mobile */
+}).setView([500, 500], 0);
+
+/* Enable desktop double-click zoom when the viewport grows */
+mqMobile.addEventListener('change', (e) => {
+  if (e.matches) map.doubleClickZoom.disable();
+  else map.doubleClickZoom.enable();
+  updateZoomButtons();
+});
+
+let imageLayer = null;
+let imageBounds = [[0, 0], [1000, 1000]];
+
+function applyImage(src, w, h) {
+  imageBounds = [[0, 0], [h, w]];
+  if (imageLayer) map.removeLayer(imageLayer);
+  imageLayer = L.imageOverlay(src, imageBounds).addTo(map);
+  map.setMaxBounds([[-h * 0.3, -w * 0.3], [h * 1.3, w * 1.3]]);
+  map.fitBounds(imageBounds);
+  document.getElementById('welcome').style.display = 'none';
+  updateLabelFont();
+  updateZoomButtons();
+}
+function loadImage(src) {
+  const im = new Image();
+  im.onload = () => applyImage(src, im.naturalWidth, im.naturalHeight);
+  im.src = src;
+}
+(function () {
+  const saved = localStorage.getItem(IMG_KEY);
+  if (saved) loadImage(saved);
+})();
+
+/* ---------- PLOT DATA (read-only) ---------- */
+let plots = [];
+try { plots = JSON.parse(localStorage.getItem(PLOT_KEY)) || []; } catch (e) { plots = []; }
+
+/* Ensure computed fields exist on every plot */
+plots = plots.map(p => {
+  const L = Number(p.length_ft) || 0;
+  const B = Number(p.breadth_ft) || 0;
+  const area_sqft = L * B;
+  const ankanams  = Number(p.ankanams) || (area_sqft / SQFT_PER_ANKANAM);
+  const rate      = Number(p.ankanam_rate) || 0;
+  return {
+    ...p,
+    area_sqft: Math.round(area_sqft * 100) / 100,
+    area_sqyd: Math.round((area_sqft / SQFT_PER_SQYD) * 100) / 100,
+    ankanams:  Math.round(ankanams * 100) / 100,
+    total_cost: Math.round(ankanams * rate)
+  };
+});
+
+/* ---------- COLORS ---------- */
+const COLORS = {
+  available:'#28a745', booked:'#e83e8c', sold:'#dc3545', onhold:'#ffc107',
+  mortgage:'#fd7e14', registration:'#17a2b8', houses:'#198754'
+};
+const LABELS = {
+  available:'Available', booked:'Booked', sold:'Sold', onhold:'On Hold',
+  mortgage:'Mortgage', registration:'Registration', houses:'Houses'
+};
+const colorOf = s => COLORS[(s || '').toLowerCase()] || '#3388ff';
+const labelOf = s => LABELS[(s || '').toLowerCase()] || s;
+const fmtMoney = n => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+const fmtNum   = n => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+/* ---------- LAYERS ---------- */
+const plotLayer = L.layerGroup().addTo(map);
+const plotLayers = {};
+
+/* ---------- RENDER ---------- */
+function renderPlots() {
+  plotLayer.clearLayers();
+  Object.keys(plotLayers).forEach(k => delete plotLayers[k]);
+
+  plots.forEach(p => {
+    const c = colorOf(p.status);
+    const poly = L.polygon(p.coords, {
+      color: c, weight: 2, fillColor: c, fillOpacity: 0.5
+    });
+    poly.on('click', (e) => {
+      L.DomEvent.stopPropagation(e);
+      showInfo(p);
+    });
+
+    const ctr = poly.getBounds().getCenter();
+    const statusClass = ['sold','booked','onhold'].includes((p.status||'').toLowerCase())
+      ? p.status.toLowerCase() : '';
+
+    L.marker(ctr, {
+      interactive: false,
+      icon: L.divIcon({
+        className: 'plot-label ' + statusClass,
+        html: '<span>' + p.plotNo + '</span>',
+        iconSize: [0, 0], iconAnchor: [0, 0]
+      })
+    }).addTo(plotLayer);
+
+    poly.addTo(plotLayer);
+    plotLayers[p.plotNo] = poly;
+  });
+  updateLabelFont();
+  updateZoomButtons();
+}
+function updateLabelFont() {
+  const z = map.getZoom();
+  let size = 10 * Math.pow(1.25, z);
+  size = Math.max(6, Math.min(16, size));
+  map.getContainer().style.setProperty('--label-font', size.toFixed(1) + 'px');
+}
+map.on('zoomend zoom', () => { updateLabelFont(); updateZoomButtons(); });
+
+/* ---------- CUSTOM ZOOM ---------- */
+const zoomInBtn  = document.getElementById('zoomInBtn');
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+
+zoomInBtn.addEventListener('click',  () => map.zoomIn());
+zoomOutBtn.addEventListener('click', () => map.zoomOut());
+
+/* Long-press for continuous zoom (nice on desktop, harmless on mobile) */
+function bindHold(btn, fn) {
+  let t = null;
+  const start = (e) => { e.preventDefault(); fn(); t = setInterval(fn, 200); };
+  const stop  = () => { if (t) { clearInterval(t); t = null; } };
+  btn.addEventListener('mousedown', start);
+  btn.addEventListener('touchstart', start, { passive: false });
+  ['mouseup','mouseleave','touchend','touchcancel'].forEach(ev =>
+    btn.addEventListener(ev, stop)
+  );
+}
+bindHold(zoomInBtn,  () => map.zoomIn());
+bindHold(zoomOutBtn, () => map.zoomOut());
+
+function updateZoomButtons() {
+  zoomInBtn.disabled  = map.getZoom() >= map.getMaxZoom();
+  zoomOutBtn.disabled = map.getZoom() <= map.getMinZoom();
+}
+
+/* Keyboard shortcuts (desktop) */
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); map.zoomIn(); }
+  if (e.key === '-' || e.key === '_') { e.preventDefault(); map.zoomOut(); }
+});
+
+/* ---------- INFO CARD (read-only) ---------- */
+function showInfo(p) {
+  const c = colorOf(p.status);
+  document.getElementById('infoContent').innerHTML = `
+    <h3 style="color:${c}">Plot ${p.plotNo}</h3>
+    <div class="row"><span>Block</span><span>${p.block || '—'}</span></div>
+    <div class="row"><span>Phase</span><span>${p.phase || '—'}</span></div>
+    <div class="row"><span>Facing</span><span>${p.facing || '—'}</span></div>
+
+    <div class="size-box">
+      <div class="line"><span>Length</span><span>${fmtNum(p.length_ft)} ft</span></div>
+      <div class="line"><span>Breadth</span><span>${fmtNum(p.breadth_ft)} ft</span></div>
+      <div class="line"><span>Area</span><span>${fmtNum(p.area_sqft)} sq ft</span></div>
+      <div class="line"><span>Area</span><span>${fmtNum(p.area_sqyd)} sq yd</span></div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="row"><span>Ankanams</span><span>${fmtNum(p.ankanams)}</span></div>
+    <div class="row"><span>Rate / Ankanam</span><span style="color:#0a58ca">${fmtMoney(p.ankanam_rate)}</span></div>
+    <div class="total-box">
+      <span class="lbl">Total Plot Cost</span>
+      <span class="val">${fmtMoney(p.total_cost)}</span>
+    </div>
+    <div class="row"><span>Status</span>
+      <span style="background:${c};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${labelOf(p.status)}</span>
+    </div>
+  `;
+  document.getElementById('infoCard').style.display = 'block';
+  closeLegend();
+}
+function closeInfoCard() {
+  document.getElementById('infoCard').style.display = 'none';
+}
+window.closeInfoCard = closeInfoCard;
+
+/* ---------- LEGEND TOGGLE ---------- */
+const legend = document.getElementById('legend');
+function toggleLegend() {
+  legend.classList.toggle('show');
+  closeInfoCard();
+}
+function closeLegend() {
+  legend.classList.remove('show');
+}
+document.getElementById('legendBtn').addEventListener('click', toggleLegend);
+
+/* ---------- FIT ---------- */
+document.getElementById('fitBtn').addEventListener('click', () => {
+  if (imageLayer) {
+    map.fitBounds(imageBounds);
+  } else {
+    const layers = Object.values(plotLayers);
+    if (layers.length) {
+      const group = L.featureGroup(layers);
+      if (group.getBounds().isValid())
+        map.fitBounds(group.getBounds(), { padding: [40, 40] });
+    }
+  }
+  closeLegend();
+  closeInfoCard();
+});
+
+/* ---------- SEARCH ---------- */
+function doSearch() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  if (!q) return;
+  const hit = plots.find(p => String(p.plotNo).toLowerCase() === q);
+  if (hit && plotLayers[hit.plotNo]) {
+    const layer = plotLayers[hit.plotNo];
+    map.fitBounds(layer.getBounds(), { maxZoom: 1 });
+    showInfo(hit);
+    /* On mobile, collapse the search field after a hit */
+    if (isMobile()) {
+      document.getElementById('searchBox').classList.remove('show');
+      document.getElementById('searchToggle').classList.remove('active');
+    }
+  } else { toast('Plot "' + q + '" not found'); }
+}
+document.getElementById('searchBtn').addEventListener('click', doSearch);
+document.getElementById('searchInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
+});
+
+/* ---------- MOBILE SEARCH TOGGLE ---------- */
+const searchToggle = document.getElementById('searchToggle');
+const searchBox    = document.getElementById('searchBox');
+searchToggle.addEventListener('click', () => {
+  const open = searchBox.classList.toggle('show');
+  searchToggle.classList.toggle('active', open);
+  if (open) setTimeout(() => document.getElementById('searchInput').focus(), 60);
+  closeLegend();
+  closeInfoCard();
+});
+
+/* ---------- TOAST ---------- */
+let toastTimer = null;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ---------- DYNAMIC BAR HEIGHT (mobile bottom bar) ---------- */
+function updateBarHeight() {
+  const bar = document.getElementById('actionbar');
+  if (!bar) return;
+  const h = bar.offsetHeight;
+  if (h) document.documentElement.style.setProperty('--bar-h', h + 'px');
+}
+window.addEventListener('resize', updateBarHeight);
+window.addEventListener('orientationchange', () => setTimeout(updateBarHeight, 200));
+setTimeout(updateBarHeight, 50);
+
+/* ---------- INIT ---------- */
+renderPlots();
+updateZoomButtons();
+updateLabelFont();
+</script>
+</body>
+</html>
